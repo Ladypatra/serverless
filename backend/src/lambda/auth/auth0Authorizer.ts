@@ -3,13 +3,10 @@ import 'source-map-support/register'
 import { verify} from 'jsonwebtoken'
 import { createLogger } from '../../utils/logger'
 import Axios from 'axios'
-import { JwtPayload } from '../../auth/JwtPayload'
-
+//import { JwtPayload } from '../../auth/JwtPayload'
+import { JwtPayload } from 'jsonwebtoken'
 const logger = createLogger('auth');
-
-// Todo
 const jwksUrl = 'https://dev-hgx7t4pw.us.auth0.com/.well-known/jwks.json';
-
 
 export const handler = async (
   event: CustomAuthorizerEvent
@@ -58,7 +55,6 @@ export const handler = async (
 
 async function verifyToken(authHeader: string): Promise<JwtPayload> {
   try {
-
     const token = getToken(authHeader)
     const res = await Axios.get(jwksUrl);
 

@@ -1,27 +1,42 @@
-import 'source-map-support/register'
-import {APIGatewayProxyEvent, APIGatewayProxyHandler, APIGatewayProxyResult} from 'aws-lambda'
-import {UpdateTodoRequest} from '../../requests/UpdateTodoRequest'
-import {updateToDo} from "../../businessLogic/ToDo";
+import 'source-map-support/register';
+import { cors , httpErrorHandler } from 'middy/middlewares'
+import middy from 'middy';
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+// import { APIGatewayProxyEvent, APIGatewayProxyResult, APIGatewayProxyHandler } from 'aws-lambda';
+import { updateTodo } from '../../businessLogic/todos';
+import { TodoUpdate } from '../../models/Todo.d';
+import { createLogger } from '../../utils/logger';
+import { getToken } from '../../utils/getJwt';
 
-export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-    // TODO: Update a TODO item with the provided id using values in the "updatedTodo" object
-    console.log("Processing Event ", event);
-    const authorization = event.headers.Authorization;
-    const split = authorization.split(' ');
-    const jwtToken = split[1];
+const logger = createLogger('updateTodo');
 
-    const todoId = event.pathParameters.todoId;
-    const updatedTodo: UpdateTodoRequest = JSON.parse(event.body);
+export const handler = middy( 
+  async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+  logger.info('Processing UpdateTodo event...');
+  const jwtToken: string = getToken(event);
+  const todoId = event.pathParameters.todoId;
+  const updateData: TodoUpdate = JSON.parse(event.body);
 
-    const toDoItem = await updateToDo(updatedTodo, todoId, jwtToken);
-
+  try {
+    await updateTodo(jwtToken, todoId, updateData);
+    logger.info(`Successfully updated the todo item: ${todoId}`);
     return {
-        statusCode: 200,
-        headers: {
-            "Access-Control-Allow-Origin": "*",
-        },
-        body: JSON.stringify({
-            "item": toDoItem
-        }),
-    }
-};
+      statusCode: 204,
+      body: undefined
+    };
+  } catch (error) {
+    logger.error(`Error: ${error.message}`);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: error })
+    };
+  }
+})
+
+handler
+ .use(httpErrorHandler())
+ .use(
+     cors({
+       credentials: true
+  })
+)

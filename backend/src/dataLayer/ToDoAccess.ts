@@ -1,113 +1,93 @@
-import * as AWS from "aws-sdk";
+import * as AWS from 'aws-sdk';
 import * as AWSXRay from 'aws-xray-sdk';
-import { DocumentClient } from "aws-sdk/clients/dynamodb";
-import { Types } from 'aws-sdk/clients/s3';
-import { TodoItem } from "../models/TodoItem";
-import { TodoUpdate } from "../models/TodoUpdate";
-
+import { createLogger } from '../utils/logger';
+import { DocumentClient } from 'aws-sdk/clients/dynamodb';
+import { TodoItem, TodoUpdate } from '../models/Todo.d';
 
 const XAWS = AWSXRay.captureAWS(AWS);
+const logger = createLogger('todoAccess');
 
-export class ToDoAccess {
-    constructor(
-        private readonly docClient: DocumentClient = new XAWS.DynamoDB.DocumentClient(),
-        private readonly s3Client: Types = new XAWS.S3({ signatureVersion: 'v4' }),
-        private readonly todoTable = process.env.TODOS_TABLE,
-        private readonly s3BucketName = process.env.S3_BUCKET_NAME) {
-    }
+const docClient: DocumentClient = new XAWS.DynamoDB.DocumentClient()
+const todosTable = process.env.TODOS_TABLE
 
-    async getAllToDo(userId: string): Promise<TodoItem[]> {
-        console.log("Getting all todo");
+export async function createTodo(todo: TodoItem): Promise<TodoItem> {
+  logger.info(`Creating new todo item: ${todo.todoId}`);
+  await docClient
+    .put({
+      TableName: todosTable,
+      Item: todo
+    })
+    .promise()
+  return todo
+}
 
-        const params = {
-            TableName: this.todoTable,
-            KeyConditionExpression: "#userId = :userId",
-            ExpressionAttributeNames: {
-                "#userId": "userId"
-            },
-            ExpressionAttributeValues: {
-                ":userId": userId
-            }
-        };
+export async function getTodos(userId: string): Promise<TodoItem[]> {
+  logger.info('Getting all todo items');
+  const result = await docClient
+    .query({
+      TableName: todosTable,
+      KeyConditionExpression: 'userId = :userId',
+      ExpressionAttributeValues: {
+        ':userId': userId
+      }
+    })
+    .promise();
+  return result.Items as TodoItem[];
+}
 
-        const result = await this.docClient.query(params).promise();
-        console.log(result);
-        const items = result.Items;
+export async function getTodo(userId: string, todoId: string): Promise<TodoItem> {
+  logger.info(`Getting todo item: ${todoId}`);
+  const result = await docClient
+    .query({
+      TableName: todosTable,
+      KeyConditionExpression: 'userId = :userId and todoId = :todoId',
+      ExpressionAttributeValues: {
+        ':userId': userId,
+        ':todoId': todoId
+      }
+    })
+    .promise();
+  const todoItem = result.Items[0];
+  return todoItem as TodoItem;
+}
 
-        return items as TodoItem[];
-    }
+export async function updateTodo(userId: string, todoId: string, updateData: TodoUpdate): Promise<void> {
+  logger.info(`Updating a todo item: ${todoId}`);
+  await docClient
+    .update({
+      TableName: todosTable,
+      Key: { userId, todoId },
+      ConditionExpression: 'attribute_exists(todoId)',
+      UpdateExpression: 'set #n = :n, dueDate = :due, done = :dn',
+      ExpressionAttributeNames: { '#n': 'name' },
+      ExpressionAttributeValues: {
+        ':n': updateData.name,
+        ':due': updateData.dueDate,
+        ':dn': updateData.done
+      }
+    })
+    .promise();
+}
 
-    async createToDo(todoItem: TodoItem): Promise<TodoItem> {
-        console.log("Creating new todo");
+export async function deleteTodo(userId: string, todoId: string): Promise<void> {
+  await docClient
+    .delete({
+      TableName: todosTable,
+      Key: { userId, todoId }
+    })
+    .promise();
+}
 
-        const params = {
-            TableName: this.todoTable,
-            Item: todoItem,
-        };
-
-        const result = await this.docClient.put(params).promise();
-        console.log(result);
-
-        return todoItem as TodoItem;
-    }
-
-    async updateToDo(todoUpdate: TodoUpdate, todoId: string, userId: string): Promise<TodoUpdate> {
-        console.log("Updating todo");
-
-        const params = {
-            TableName: this.todoTable,
-            Key: {
-                "userId": userId,
-                "todoId": todoId
-            },
-            UpdateExpression: "set #a = :a, #b = :b, #c = :c",
-            ExpressionAttributeNames: {
-                "#a": "name",
-                "#b": "dueDate",
-                "#c": "done"
-            },
-            ExpressionAttributeValues: {
-                ":a": todoUpdate['name'],
-                ":b": todoUpdate['dueDate'],
-                ":c": todoUpdate['done']
-            },
-            ReturnValues: "ALL_NEW"
-        };
-
-        const result = await this.docClient.update(params).promise();
-        console.log(result);
-        const attributes = result.Attributes;
-
-        return attributes as TodoUpdate;
-    }
-
-    async deleteToDo(todoId: string, userId: string): Promise<string> {
-        console.log("Deleting todo");
-
-        const params = {
-            TableName: this.todoTable,
-            Key: {
-                "userId": userId,
-                "todoId": todoId
-            },
-        };
-
-        const result = await this.docClient.delete(params).promise();
-        console.log(result);
-
-        return "" as string;
-    }
-
-    async generateUploadUrl(todoId: string): Promise<string> {
-        console.log("Generating URL");
-
-        const url = this.s3Client.getSignedUrl('putObject', {
-            Bucket: this.s3BucketName,
-            Key: todoId,
-            Expires: 1000,
-        });
-        console.log(url);
-
-        return url as string;
-    }
+export async function saveImgUrl(userId: string, todoId: string, bucketName: string): Promise<void> {
+  await docClient
+    .update({
+      TableName: todosTable,
+      Key: { userId, todoId },
+      ConditionExpression: 'attribute_exists(todoId)',
+      UpdateExpression: 'set attachmentUrl = :attachmentUrl',
+      ExpressionAttributeValues: {
+        ':attachmentUrl': `https://${bucketName}.s3.amazonaws.com/${todoId}`
+      }
+    })
+    .promise();
 }
